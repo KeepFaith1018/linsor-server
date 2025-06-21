@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model conversations {
+  id           Int        @id @default(autoincrement())
+  user_id      Int     
+  knowledge_id Int
+  created_at   DateTime?  @default(now()) @db.Timestamp(6)
+  updated_at   DateTime?  @default(now()) @db.Timestamp(6)
+  knowledge    knowledge  @relation(fields: [knowledge_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users        users      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  messages     messages[]
+}
+
+model files {
+  id           Int       @id @default(autoincrement())
+  knowledge_id Int
+  name         String
+  file_url     String
+  file_type    String?
+  is_deleted   Boolean?  @default(false)
+  created_at   DateTime? @default(now()) @db.Timestamp(6)
+  updated_at   DateTime? @default(now()) @db.Timestamp(6)
+  knowledge    knowledge @relation(fields: [knowledge_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model knowledge {
+  id             Int              @id @default(autoincrement())
+  name           String
+  description    String?
+  owner_id       Int           
+  is_shared      Boolean?         @default(false)
+  is_deleted     Boolean?         @default(false)
+  created_at     DateTime?        @default(now()) @db.Timestamp(6)
+  updated_at     DateTime?        @default(now()) @db.Timestamp(6)
+  conversations  conversations[]
+  files          files[]
+  users          users            @relation(fields: [owner_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  knowledge_user knowledge_user[]
+}
+
+model knowledge_user {
+  id           Int       @id @default(autoincrement())
+  knowledge_id Int
+  user_id      Int    
+  created_at   DateTime? @default(now()) @db.Timestamp(6)
+  knowledge    knowledge @relation(fields: [knowledge_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users        users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([knowledge_id, user_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model messages {
+  id              Int           @id @default(autoincrement())
+  conversation_id Int
+  sender          Int           @db.SmallInt
+  content         String
+  created_at      DateTime?     @default(now()) @db.Timestamp(6)
+  conversations   conversations @relation(fields: [conversation_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model users {
+  id             Int        @id @default(autoincrement())
+  nickname       String?
+  avatar         String?
+  created_at     DateTime?        @default(now()) @db.Timestamp(6)
+  updated_at     DateTime?        @default(now()) @db.Timestamp(6)
+  conversations  conversations[]
+  knowledge      knowledge[]
+  knowledge_user knowledge_user[]
+}
