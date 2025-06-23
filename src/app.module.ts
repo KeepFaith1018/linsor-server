@@ -3,8 +3,14 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { WinstonModule } from 'nest-winston';
 import { winstonConfig } from './common/config/winston.config';
-import { JwtModule } from '@nestjs/jwt';
+import { JwtModule, JwtService } from '@nestjs/jwt';
 import { PrismaService } from './common/db/prisma.service';
+import { AuthModule } from './modules/auth/auth.module';
+import { KnowledgeModule } from './modules/knowledge/knowledge.module';
+import { FileModule } from './modules/file/file.module';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+import { AllExceptionsFilter } from './common/filter/all-exceptions.filter';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
 @Module({
   imports: [
@@ -15,8 +21,24 @@ import { PrismaService } from './common/db/prisma.service';
         expiresIn: '7d',
       },
     }),
+    AuthModule,
+    KnowledgeModule,
+    FileModule,
   ],
   controllers: [AppController],
-  providers: [AppService, PrismaService],
+  providers: [
+    AppService,
+    PrismaService,
+    JwtService,
+    {
+      provide: APP_FILTER,
+      useClass: AllExceptionsFilter,
+    },
+    // 应用拦截器
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: LoggingInterceptor,
+    },
+  ],
 })
 export class AppModule {}
