@@ -1,6 +1,6 @@
 import { Controller, Get, Inject } from '@nestjs/common';
 import { AppService } from './app.service';
-import { PrismaService } from './common/db/prisma.service';
+import { PrismaService } from './common/prisma/prisma.service';
 import { Result } from './common/utils/result';
 
 @Controller()

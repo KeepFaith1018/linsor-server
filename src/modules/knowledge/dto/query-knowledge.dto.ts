@@ -1,19 +1,13 @@
-import { IsString, IsOptional, IsBoolean, IsNumber } from 'class-validator';
+import { IsString, IsOptional, IsNumber } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class QueryKnowledgeDto {
   @IsString()
   @IsOptional()
   name?: string;
 
-  @IsBoolean()
   @IsOptional()
-  is_shared?: boolean;
-
+  @Type(() => Number)
   @IsNumber()
-  @IsOptional()
   owner_id?: number;
-
-  @IsBoolean()
-  @IsOptional()
-  is_deleted?: boolean = false;
 }

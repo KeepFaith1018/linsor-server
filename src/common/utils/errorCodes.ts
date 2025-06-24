@@ -8,8 +8,9 @@ export enum ErrorCode {
 
   USER_NOT_FOUND = 20001,
   INVALID_CREDENTIALS = 20002,
-
   KNOWLEDGE_NOT_FOUND = 30001,
+
+  KNOWLEDGE_REQUEST_ERROR = 10005,
 }
 
 export const ErrorMessageMap: Record<ErrorCode, string> = {
@@ -19,4 +20,5 @@ export const ErrorMessageMap: Record<ErrorCode, string> = {
   [ErrorCode.USER_NOT_FOUND]: '用户不存在',
   [ErrorCode.INVALID_CREDENTIALS]: '用户名或密码错误',
   [ErrorCode.KNOWLEDGE_NOT_FOUND]: '知识库未找到',
+  [ErrorCode.KNOWLEDGE_REQUEST_ERROR]: '知识库请求错误',
 };

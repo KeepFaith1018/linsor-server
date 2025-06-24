@@ -1,8 +1,10 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
-import { PrismaService } from '../../common/db/prisma.service';
+import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateKnowledgeDto } from './dto/create-knowledge.dto';
 import { UpdateKnowledgeDto } from './dto/update-knowledge.dto';
 import { QueryKnowledgeDto } from './dto/query-knowledge.dto';
+import { AppException } from 'src/common/exception/appException';
+import { ErrorCode } from 'src/common/utils/errorCodes';
 
 @Injectable()
 export class KnowledgeService {
@@ -19,7 +21,6 @@ export class KnowledgeService {
           owner_id: userId,
         },
       });
-
       return knowledge;
     } catch (error) {
       throw new HttpException(
@@ -29,13 +30,13 @@ export class KnowledgeService {
     }
   }
 
-  // 查询知识库列表
-  async findAll(queryDto: QueryKnowledgeDto, userId: number) {
+  // 查询知识库列表,只能查询共享知识库
+  async findAll(queryDto: QueryKnowledgeDto) {
     try {
       // 构建查询条件
       const where: any = {
-        is_deleted:
-          queryDto.is_deleted !== undefined ? queryDto.is_deleted : false,
+        is_deleted: false,
+        is_shared: true,
       };
 
       // 如果提供了名称，进行模糊查询
@@ -46,33 +47,16 @@ export class KnowledgeService {
         };
       }
 
-      // 如果指定了公开性
-      if (queryDto.is_shared !== undefined) {
-        where.is_shared = queryDto.is_shared;
-      }
-
       // 如果指定了所有者ID
       if (queryDto.owner_id) {
         where.owner_id = queryDto.owner_id;
       }
 
-      // 查询用户有权限访问的知识库
-      // 1. 用户创建的知识库
-      // 2. 公开的知识库
-      // 3. 用户被邀请加入的知识库
       const knowledgeList = await this.prisma.knowledge.findMany({
         where: {
           OR: [
-            { ...where, owner_id: userId }, // 用户创建的
-            { ...where, is_shared: true }, // 公开的
             {
-              // 用户被邀请的
               ...where,
-              knowledge_user: {
-                some: {
-                  user_id: userId,
-                },
-              },
             },
           ],
         },
@@ -98,7 +82,6 @@ export class KnowledgeService {
           _count: {
             select: {
               files: true,
-              conversations: true,
             },
           },
         },
@@ -118,15 +101,9 @@ export class KnowledgeService {
         owner: knowledge.users,
         members: knowledge.knowledge_user.map((ku) => ku.users),
         file_count: knowledge._count.files,
-        conversation_count: knowledge._count.conversations,
-        is_owner: knowledge.owner_id === userId,
-        is_member: knowledge.knowledge_user.some((ku) => ku.user_id === userId),
       }));
     } catch (error) {
-      throw new HttpException(
-        '查询知识库失败: ' + error.message,
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new AppException(ErrorCode.KNOWLEDGE_REQUEST_ERROR);
     }
   }
 
@@ -205,6 +182,23 @@ export class KnowledgeService {
         '查询知识库详情失败: ' + error.message,
         HttpStatus.BAD_REQUEST,
       );
+    }
+  }
+
+  async findPersonal(userId: number) {
+    try {
+      const knowledge = await this.prisma.knowledge.findFirst({
+        where: {
+          name: {
+            contains: '个人知识库',
+          },
+          owner_id: userId,
+          is_deleted: false,
+        },
+      });
+      return knowledge;
+    } catch (e) {
+      throw new AppException(ErrorCode.KNOWLEDGE_REQUEST_ERROR);
     }
   }
 

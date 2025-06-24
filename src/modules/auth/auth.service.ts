@@ -1,6 +1,6 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { PrismaService } from '../../common/db/prisma.service';
+import { PrismaService } from '../../common/prisma/prisma.service';
 import { WechatLoginDto } from './dto/wechat-login.dto';
 import axios from 'axios';
 

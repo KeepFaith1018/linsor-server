@@ -7,128 +7,85 @@ import {
   Param,
   Delete,
   Query,
-  Headers,
-  HttpException,
-  HttpStatus,
+  UseGuards,
+  Put,
 } from '@nestjs/common';
 import { KnowledgeService } from './knowledge.service';
 import { CreateKnowledgeDto } from './dto/create-knowledge.dto';
 import { UpdateKnowledgeDto } from './dto/update-knowledge.dto';
 import { QueryKnowledgeDto } from './dto/query-knowledge.dto';
-import { JwtService } from '@nestjs/jwt';
+import { JwtAuthGuard } from 'src/common/guards/jwtGuard.guard';
+import { User } from 'src/common/decorators/user.decorator';
 
 @Controller('knowledge')
+@UseGuards(JwtAuthGuard)
 export class KnowledgeController {
-  constructor(
-    private readonly knowledgeService: KnowledgeService,
-    private readonly jwtService: JwtService,
-  ) {}
+  constructor(private readonly knowledgeService: KnowledgeService) {}
 
-  // 获取用户ID
-  private getUserIdFromToken(authorization: string): number {
-    if (!authorization) {
-      throw new HttpException('缺少Authorization头', HttpStatus.UNAUTHORIZED);
-    }
-
-    const token = authorization.replace('Bearer ', '');
-    try {
-      const payload = this.jwtService.verify(token);
-      return payload.userId;
-    } catch (error) {
-      throw new HttpException('Token无效', HttpStatus.UNAUTHORIZED);
-    }
+  @UseGuards(JwtAuthGuard)
+  // 查询个人知识库
+  @Get('personal')
+  async findPersonal(@User() userId: number) {
+    return this.knowledgeService.findPersonal(userId);
   }
 
+  @UseGuards(JwtAuthGuard)
   // 创建知识库
-  @Post()
+  @Post('create')
   async create(
     @Body() createKnowledgeDto: CreateKnowledgeDto,
-    @Headers('authorization') authorization: string,
+    @User() userId: number,
   ) {
-    const userId = this.getUserIdFromToken(authorization);
     return this.knowledgeService.create(createKnowledgeDto, userId);
   }
 
-  // 查询知识库列表
-  @Get()
-  async findAll(
-    @Query() queryDto: QueryKnowledgeDto,
-    @Headers('authorization') authorization: string,
-  ) {
-    const userId = this.getUserIdFromToken(authorization);
-    return this.knowledgeService.findAll(queryDto, userId);
+  // 查询知识库列表(共享的)
+  @Get('list')
+  async findAll(@Param() queryDto: QueryKnowledgeDto) {
+    return this.knowledgeService.findAll(queryDto);
   }
 
   // 查询单个知识库
   @Get(':id')
-  async findOne(
-    @Param('id') id: string,
-    @Headers('authorization') authorization: string,
-  ) {
-    const userId = this.getUserIdFromToken(authorization);
+  async findOne(@Param('id') id: string, @User() userId: number) {
     return this.knowledgeService.findOne(+id, userId);
   }
-
+  @UseGuards(JwtAuthGuard)
   // 更新知识库
-  @Patch(':id')
+  @Put(':id')
   async update(
     @Param('id') id: string,
     @Body() updateKnowledgeDto: UpdateKnowledgeDto,
-    @Headers('authorization') authorization: string,
+    @User() userId: number,
   ) {
-    const userId = this.getUserIdFromToken(authorization);
     return this.knowledgeService.update(+id, updateKnowledgeDto, userId);
   }
-
+  @UseGuards(JwtAuthGuard)
   // 删除知识库
   @Delete(':id')
-  async remove(
-    @Param('id') id: string,
-    @Headers('authorization') authorization: string,
-  ) {
-    const userId = this.getUserIdFromToken(authorization);
+  async remove(@Param('id') id: string, @User() userId: number) {
     return this.knowledgeService.remove(+id, userId);
   }
-
+  @UseGuards(JwtAuthGuard)
   // 加入知识库
   @Post('join/:id')
-  async joinKnowledge(
-    @Param('id') id: string,
-    @Headers('authorization') authorization: string,
-  ) {
-    const userId = this.getUserIdFromToken(authorization);
+  async joinKnowledge(@Param('id') id: string, @User() userId: number) {
     return this.knowledgeService.joinKnowledge(+id, userId);
   }
-
+  @UseGuards(JwtAuthGuard)
   // 退出知识库
   @Post('leave/:id')
-  async leaveKnowledge(
-    @Param('id') id: string,
-    @Headers('authorization') authorization: string,
-  ) {
-    const userId = this.getUserIdFromToken(authorization);
+  async leaveKnowledge(@Param('id') id: string, @User() userId: number) {
     return this.knowledgeService.leaveKnowledge(+id, userId);
   }
-
-  // 邀请用户加入知识库
-  @Post('invite/:id/:userId')
-  async inviteUser(
-    @Param('id') id: string,
-    @Param('userId') invitedUserId: string,
-    @Headers('authorization') authorization: string,
-  ) {
-    const currentUserId = this.getUserIdFromToken(authorization);
-    return this.knowledgeService.inviteUser(+id, +invitedUserId, currentUserId);
-  }
-
+  @UseGuards(JwtAuthGuard)
   // 移除知识库成员
   @Delete('member/:id/:userId')
   async removeMember(
     @Param('id') id: string,
     @Param('userId') memberId: string,
-    @Headers('authorization') authorization: string,
+    @User() currentUserId: number,
   ) {
-    const currentUserId = this.getUserIdFromToken(authorization);
     return this.knowledgeService.removeMember(+id, +memberId, currentUserId);
   }
 }
