@@ -2,9 +2,10 @@ import { Injectable, HttpException, HttpStatus, Inject } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { QueryFilesDto } from './dto/query-files.dto';
 import { SearchFilesDto } from './dto/search-files.dto';
-import * as fs from 'fs';
+import * as fs from 'fs/promises';
 import { AiService } from '../ai/ai.service';
 import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
+import { log } from 'console';
 
 @Injectable()
 export class FileService {
@@ -74,7 +75,6 @@ export class FileService {
       });
 
       await this.addToVectorDatabase(knowledge_id, fileRecord.id, file.path);
-
       return {
         id: fileRecord.id,
         name: fileRecord.name,
@@ -85,13 +85,18 @@ export class FileService {
       };
     } catch (error) {
       // 如果数据库操作失败，删除已上传的文件
-      if (file.path && fs.existsSync(file.path)) {
-        fs.unlinkSync(file.path);
+
+      const localPath = file.path;
+      try {
+        if (localPath) {
+          await fs.access(localPath); // 检查文件是否存在
+          await fs.unlink(localPath); // 删除文件
+          this.logger.info(`成功删除上传失败本地文件: ${localPath}`);
+        }
+      } catch (err) {
+        this.logger.warn(`删除本地文件失败: ${localPath}`, err.message);
       }
-      throw new HttpException(
-        error.message || '文件上传失败',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new HttpException('文件上传失败', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
@@ -226,10 +231,16 @@ export class FileService {
         where: { id: fileId },
         data: { is_deleted: true },
       });
-
+      const localPath = file.file_url.replace('static', 'uploads');
       // 删除本地文件
-      if (file.file_url && fs.existsSync(file.file_url)) {
-        fs.unlinkSync(file.file_url);
+      try {
+        if (localPath) {
+          await fs.access(localPath); // 检查文件是否存在
+          await fs.unlink(localPath); // 删除文件
+          this.logger.info(`成功删除本地文件: ${localPath}`);
+        }
+      } catch (err) {
+        this.logger.warn(`删除本地文件失败: ${localPath}`, err);
       }
 
       // 从向量数据库删除（预留实现）

@@ -34,9 +34,9 @@ import { AiModule } from './modules/ai/ai.module';
     AuthModule,
     KnowledgeModule,
     FileModule,
-    ConversationModule, // 新增
+    ConversationModule,
     PrismaModule,
-    AiModule, // 添加AiModule
+    AiModule,
   ],
   controllers: [AppController],
   providers: [

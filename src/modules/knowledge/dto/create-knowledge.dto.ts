@@ -11,4 +11,8 @@ export class CreateKnowledgeDto {
   @IsBoolean()
   @IsOptional()
   is_shared?: boolean;
+
+  @IsString()
+  @IsOptional()
+  avatar?: string;
 }

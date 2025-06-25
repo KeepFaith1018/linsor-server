@@ -18,7 +18,6 @@ export class LoggingInterceptor implements NestInterceptor {
     const request = context.switchToHttp().getRequest();
 
     const { method, originalUrl, body = {}, query = {}, params = {} } = request;
-    this.logger.warn(body);
     this.logger.info(`--- Request Start ---`, {
       context: LoggingInterceptor.name,
       url: `${method} ${originalUrl}`,
@@ -40,7 +39,7 @@ export class LoggingInterceptor implements NestInterceptor {
             const duration = Date.now() - now;
             this.logger.info(`--- Request End ---`, {
               context: LoggingInterceptor.name,
-              response: data,
+              // response: data,
               duration: `${duration}ms`,
             });
           }),

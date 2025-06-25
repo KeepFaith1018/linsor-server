@@ -1,60 +1,218 @@
-import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus, Inject } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateConversationDto } from './dto/create-conversation.dto';
-import { SendMessageDto } from './dto/send-message.dto';
+import { SendMessageSimpleDto } from './dto/send-message-simple.dto';
 import { QueryConversationDto } from './dto/query-conversation.dto';
 import { AiService } from '../ai/ai.service';
+import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
+import { SaveStreamAiMessageDto } from './dto/save-stream-ai-message.dto';
 
 @Injectable()
 export class ConversationService {
+  @Inject(WINSTON_MODULE_NEST_PROVIDER)
+  private readonly logger;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
   ) {}
 
-  // 更新AI响应生成方法
-  private async generateAIResponse(
-    userMessage: string,
-    conversationType: string,
-    knowledgeId?: number,
-    messageHistory?: any[],
-  ): Promise<string> {
-    if (conversationType === 'global') {
-      return await this.aiService.generateGlobalResponse(
-        userMessage,
-        messageHistory,
-      );
-    } else {
-      return await this.aiService.generateKnowledgeResponse(
-        userMessage,
-        knowledgeId!,
-        messageHistory,
+  // 1. 获取会话详情（没有则创建新会话）
+  async getConversationDetail(
+    knowledge_id: number | undefined,
+    userId: number,
+  ) {
+    try {
+      // 查找现有会话
+      let conversation = await this.prisma.conversations.findFirst({
+        where: {
+          user_id: userId,
+          type: knowledge_id ? 'knowledge' : 'global',
+          is_deleted: false,
+        },
+        include: {
+          knowledge: {
+            select: { id: true, name: true },
+          },
+        },
+        orderBy: { updated_at: 'desc' },
+      });
+
+      // 如果没有找到会话，创建新会话
+      if (!conversation) {
+        conversation = await this.prisma.conversations.create({
+          data: {
+            user_id: userId,
+            knowledge_id: knowledge_id || null,
+            type: knowledge_id ? 'knowledge' : 'global',
+            title: knowledge_id ? '知识库对话' : '全网对话',
+          },
+          include: {
+            knowledge: {
+              select: { id: true, name: true },
+            },
+          },
+        });
+      }
+
+      // 获取该会话下的消息列表
+      const messages = await this.prisma.messages.findMany({
+        where: {
+          conversation_id: conversation.id,
+        },
+        orderBy: { created_at: 'asc' },
+        select: {
+          id: true,
+          content: true,
+          sender_type: true,
+          isSuccess: true,
+          created_at: true,
+        },
+      });
+
+      return {
+        conversation,
+        messages,
+        isNew: !conversation.id, // 标识是否为新创建的会话
+      };
+    } catch (error) {
+      this.logger.error(error);
+      throw new HttpException(
+        '获取会话详情失败',
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
-  // 更新全网AI响应方法
-  private async generateGlobalAIResponse(
-    userMessage: string,
-    messageHistory?: any[],
-  ): Promise<string> {
-    return await this.aiService.generateGlobalResponse(
-      userMessage,
-      messageHistory,
-    );
+  //  sendMessageSimple 用户发送保存消息
+  async sendMessageSimple(dto: SendMessageSimpleDto, userId: number) {
+    try {
+      // 1. 验证会话权限
+      const conversation = await this.prisma.conversations.findUnique({
+        where: {
+          id: dto.conversation_id,
+          user_id: userId,
+        },
+      });
+
+      if (!conversation) {
+        throw new HttpException('会话不存在', HttpStatus.BAD_REQUEST);
+      }
+
+      // 2. 快速保存用户消息并返回
+      const userMessage = await this.prisma.messages.create({
+        data: {
+          conversation_id: dto.conversation_id,
+          sender_type: 'user',
+          content: dto.content,
+          isSuccess: true,
+        },
+      });
+
+      // 立即返回用户消息，不等待AI响应
+      return {
+        userMessage,
+        conversationId: dto.conversation_id,
+      };
+    } catch (error) {
+      console.error(
+        `[${new Date().toISOString()}] ❌ sendMessageSimple 执行失败:`,
+        error.message,
+      );
+      throw new HttpException('发送消息失败', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
   }
 
-  // 更新知识库AI响应方法
-  private async generateKnowledgeAIResponse(
+  // 新增：SSE流式AI响应方法
+  async *generateStreamAiResponse(
+    conversationId: number,
     userMessage: string,
-    knowledgeId?: number,
-    messageHistory?: any[],
-  ): Promise<string> {
-    return await this.aiService.generateKnowledgeResponse(
-      userMessage,
-      knowledgeId!,
-      messageHistory,
-    );
+    userId: number,
+  ): AsyncGenerator<string, void, unknown> {
+    try {
+      console.log(conversationId, userMessage, userId);
+      // 1. 验证会话权限
+      const conversation = await this.prisma.conversations.findUnique({
+        where: {
+          id: conversationId,
+          user_id: userId,
+        },
+      });
+      console.log(conversation);
+      if (!conversation) {
+        throw new Error('会话不存在或无权限访问');
+      }
+
+      // 2. 获取对话历史
+      const recentMessages = await this.prisma.messages.findMany({
+        where: {
+          conversation_id: conversationId,
+        },
+        orderBy: { created_at: 'desc' },
+        take: 10,
+      });
+
+      // 3. 调用AI服务生成流式响应
+      let streamGenerator;
+      if (conversation.type === 'knowledge') {
+        streamGenerator = this.aiService.generateKnowledgeStreamResponse(
+          userMessage,
+          conversation.knowledge_id!,
+          recentMessages,
+        );
+      } else {
+        streamGenerator = this.aiService.generateGlobalStreamResponse(
+          userMessage,
+          recentMessages,
+        );
+      }
+
+      // 4. 逐步yield AI响应
+      for await (const chunk of streamGenerator) {
+        yield chunk;
+      }
+    } catch (error) {
+      console.error(
+        `[${new Date().toISOString()}] ❌ SSE流式响应失败:`,
+        error.message,
+      );
+      yield `data: {"error": "${error.message}"}`;
+    }
+  }
+
+  // 3. 保存AI消息
+  // 新增：保存流式AI消息
+  async saveStreamAiMessage(dto: SaveStreamAiMessageDto, userId: number) {
+    try {
+      // 验证对话权限
+      await this.validateConversationAccess(dto.conversation_id, userId);
+
+      // 保存AI回复到数据库
+      const aiMessage = await this.prisma.messages.create({
+        data: {
+          conversation_id: dto.conversation_id,
+          sender_type: 'ai',
+          content: dto.content,
+          isSuccess: dto.isSuccess, // 用户终止则标记为未成功
+        },
+      });
+
+      // 更新对话时间
+      await this.prisma.conversations.update({
+        where: { id: dto.conversation_id },
+        data: { updated_at: new Date() },
+      });
+
+      return {
+        message: !dto.isSuccess ? 'AI消息已终止并保存' : 'AI消息保存成功',
+        aiMessage,
+      };
+    } catch (error) {
+      throw new HttpException(
+        error.message || '保存流式AI消息失败',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 
   // 创建新对话
@@ -71,7 +229,7 @@ export class ConversationService {
           user_id: userId,
           knowledge_id: dto.knowledge_id,
           type: dto.type,
-          title: dto.title || this.generateTitle(dto.first_message),
+          title: dto.title || '',
         },
         include: {
           knowledge: {
@@ -79,101 +237,10 @@ export class ConversationService {
           },
         },
       });
-
-      // 添加用户的第一条消息
-      const userMessage = await this.prisma.messages.create({
-        data: {
-          conversation_id: conversation.id,
-          sender_type: 'user',
-          content: dto.first_message,
-        },
-      });
-
-      // 调用AI生成回复
-      const aiResponse = await this.generateAIResponse(
-        dto.first_message,
-        dto.type,
-        dto.knowledge_id,
-      );
-
-      // 保存AI回复
-      const aiMessage = await this.prisma.messages.create({
-        data: {
-          conversation_id: conversation.id,
-          sender_type: 'ai',
-          content: aiResponse,
-        },
-      });
-
-      return {
-        conversation,
-        messages: [userMessage, aiMessage],
-      };
+      return conversation;
     } catch (error) {
       throw new HttpException(
         error.message || '创建对话失败',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  // 发送消息
-  async sendMessage(dto: SendMessageDto, userId: number) {
-    try {
-      // 验证对话权限
-      const conversation = await this.validateConversationAccess(
-        dto.conversation_id,
-        userId,
-      );
-
-      // 添加用户消息
-      const userMessage = await this.prisma.messages.create({
-        data: {
-          conversation_id: dto.conversation_id,
-          sender_type: 'user',
-          content: dto.content,
-        },
-      });
-
-      // 获取对话历史（最近10条消息用于上下文）
-      const recentMessages = await this.prisma.messages.findMany({
-        where: {
-          conversation_id: dto.conversation_id,
-        },
-        orderBy: { created_at: 'desc' },
-        take: 10,
-      });
-
-      // 调用AI生成回复
-      const aiResponse = await this.generateAIResponse(
-        dto.content,
-        conversation.type,
-        conversation.knowledge_id!,
-        recentMessages,
-      );
-
-      // 保存AI回复
-      const aiMessage = await this.prisma.messages.create({
-        data: {
-          conversation_id: dto.conversation_id,
-          sender_type: 'ai',
-          content: aiResponse,
-        },
-      });
-
-      // 更新对话时间
-      await this.prisma.conversations.update({
-        where: { id: dto.conversation_id },
-        data: { updated_at: new Date() },
-      });
-
-      return {
-        userMessage,
-        aiMessage,
-      };
-    } catch (error) {
-      throw new HttpException(
-        error.message || '发送消息失败',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -236,29 +303,6 @@ export class ConversationService {
         total,
         totalPages: Math.ceil(total / limit),
       },
-    };
-  }
-
-  // 获取对话详情和消息历史
-  async getConversationDetail(conversationId: number, userId: number) {
-    // 验证权限
-    const conversation = await this.validateConversationAccess(
-      conversationId,
-      userId,
-    );
-
-    // 获取消息列表
-    const messages = await this.prisma.messages.findMany({
-      where: {
-        conversation_id: conversationId,
-        // 移除 is_deleted: false 条件
-      },
-      orderBy: { created_at: 'asc' },
-    });
-
-    return {
-      conversation,
-      messages,
     };
   }
 
@@ -354,13 +398,5 @@ export class ConversationService {
     }
 
     return conversation;
-  }
-
-  // 生成对话标题
-  private generateTitle(firstMessage: string): string {
-    // 简单的标题生成逻辑，取前20个字符
-    return firstMessage.length > 20
-      ? firstMessage.substring(0, 20) + '...'
-      : firstMessage;
   }
 }

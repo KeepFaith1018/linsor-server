@@ -9,28 +9,17 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as Tesseract from 'tesseract.js';
 import { Document } from 'langchain/document';
+import { randomUUID } from 'crypto';
 // 类型定义
 interface FileProcessResult {
   content: string;
   chunks: string[];
 }
 
-interface AddDocumentResult {
-  chunksCount: number;
-  contentLength: number;
-}
-
 interface SimilaritySearchResult {
   content: string;
   score: number;
   metadata: Record<string, any>;
-}
-
-interface FileTypeInfo {
-  fileName: string;
-  extension: string;
-  type: string;
-  description: string;
 }
 
 interface QdrantPoint {
@@ -122,7 +111,7 @@ export class VectorService {
       }
 
       // 分批处理chunks，避免超出API限制
-      const batchSize = 15; // 每批最多15个
+      const batchSize = 10;
       const points: QdrantPoint[] = [];
 
       for (
@@ -140,6 +129,7 @@ export class VectorService {
         // 批量生成向量
         const batchVectors = await this.embeddings.embedDocuments(batchChunks);
 
+        this.logger.verbose('向量加载成功', batchVectors);
         // 为当前批次的每个chunk创建point
         for (let i = 0; i < batchChunks.length; i++) {
           const globalIndex = batchStart + i;
@@ -147,7 +137,7 @@ export class VectorService {
           const vector = batchVectors[i];
 
           points.push({
-            id: `${fileId}_${globalIndex}`,
+            id: randomUUID(),
             vector,
             payload: {
               fileId,
@@ -165,16 +155,17 @@ export class VectorService {
           await this.delay(1000); // 延迟1秒
         }
       }
-
+      this.logger.verbose('向量数据库添加成功');
       await this.qdrantClient.upsert(collectionName, {
         wait: true,
         points,
       });
 
       this.logger.log(`Added ${chunks.length} chunks for file ${fileId}`);
+
       return { chunksCount: chunks.length, contentLength: content.length };
     } catch (error) {
-      this.logger.error(`Error adding document: ${(error as Error).message}`);
+      this.logger.error(`Error adding document:`, error);
       throw error;
     }
   }
@@ -246,9 +237,7 @@ export class VectorService {
     try {
       const loader = new TextLoader(filePath);
       const docs = await loader.load();
-      return (docs as Document<Record<string, any>>[])
-        .map((doc) => doc.pageContent)
-        .join('\n');
+      return docs.map((doc) => doc.pageContent).join('\n');
     } catch (error) {
       // 如果TextLoader失败，尝试直接读取文件
       return fs.readFileSync(filePath, 'utf-8');
@@ -260,6 +249,8 @@ export class VectorService {
     try {
       const content = fs.readFileSync(filePath, 'utf-8');
       // 可以在这里添加Markdown特殊处理逻辑
+
+      this.logger.warn('处理mark' + content);
       return content;
     } catch (error) {
       throw new Error(`读取Markdown文件失败: ${(error as Error).message}`);
@@ -311,7 +302,7 @@ export class VectorService {
 
       this.logger.log(`OCR completed, extracted ${text.length} characters`);
       // TODO: as 类型报错。
-      return text as string;
+      return text;
     } catch (error) {
       throw new Error(`图片OCR处理失败: ${(error as Error).message}`);
     }

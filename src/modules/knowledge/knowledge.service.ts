@@ -10,12 +10,32 @@ import { ErrorCode } from 'src/common/utils/errorCodes';
 export class KnowledgeService {
   constructor(private readonly prisma: PrismaService) {}
 
+  // 查询个人加入的共享知识库
+  async findJoined(userId: number) {
+    try {
+      const joinedKnowledges = await this.prisma.knowledge.findMany({
+        where: {
+          is_shared: true,
+          knowledge_user: {
+            some: {
+              user_id: userId,
+            },
+          },
+        },
+      });
+      return joinedKnowledges;
+    } catch (error) {
+      throw new AppException(ErrorCode.Knowledge_Join_Failed);
+    }
+  }
+
   // 创建知识库
   async create(createKnowledgeDto: CreateKnowledgeDto, userId: number) {
     try {
       const knowledge = await this.prisma.knowledge.create({
         data: {
           name: createKnowledgeDto.name,
+          avatar: createKnowledgeDto.avatar,
           description: createKnowledgeDto.description,
           is_shared: createKnowledgeDto.is_shared || false,
           owner_id: userId,
@@ -23,10 +43,8 @@ export class KnowledgeService {
       });
       return knowledge;
     } catch (error) {
-      throw new HttpException(
-        '创建知识库失败: ' + error.message,
-        HttpStatus.BAD_REQUEST,
-      );
+      console.log(error);
+      throw new HttpException('创建知识库失败', HttpStatus.BAD_REQUEST);
     }
   }
 

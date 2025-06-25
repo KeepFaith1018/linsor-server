@@ -56,10 +56,10 @@ export class FileController {
   }
 
   // 删除文件
-  @Delete(':id')
+  @Delete()
   async deleteFile(
-    @Param('id', ParseIntPipe) fileId: number,
-    @Param('knowledge_id', ParseIntPipe) knowledgeId: number,
+    @Body('file_id', ParseIntPipe) fileId: number,
+    @Body('knowledge_id', ParseIntPipe) knowledgeId: number,
     @User() userId: number,
   ) {
     return await this.fileService.deleteFile(knowledgeId, fileId, userId);

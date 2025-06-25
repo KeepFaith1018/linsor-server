@@ -3,10 +3,8 @@ import {
   Get,
   Post,
   Body,
-  Patch,
   Param,
   Delete,
-  Query,
   UseGuards,
   Put,
 } from '@nestjs/common';
@@ -18,7 +16,6 @@ import { JwtAuthGuard } from 'src/common/guards/jwtGuard.guard';
 import { User } from 'src/common/decorators/user.decorator';
 
 @Controller('knowledge')
-@UseGuards(JwtAuthGuard)
 export class KnowledgeController {
   constructor(private readonly knowledgeService: KnowledgeService) {}
 
@@ -27,6 +24,13 @@ export class KnowledgeController {
   @Get('personal')
   async findPersonal(@User() userId: number) {
     return this.knowledgeService.findPersonal(userId);
+  }
+
+  // 查询个人加入的共享知识库
+  @Get('joined')
+  @UseGuards(JwtAuthGuard)
+  async findJoined(@User() userId: number) {
+    return this.knowledgeService.findJoined(userId);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -47,6 +51,7 @@ export class KnowledgeController {
 
   // 查询单个知识库
   @Get(':id')
+  @UseGuards(JwtAuthGuard)
   async findOne(@Param('id') id: string, @User() userId: number) {
     return this.knowledgeService.findOne(+id, userId);
   }
