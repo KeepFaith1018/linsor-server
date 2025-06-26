@@ -7,6 +7,7 @@ import {
   Delete,
   UseGuards,
   Put,
+  Query,
 } from '@nestjs/common';
 import { KnowledgeService } from './knowledge.service';
 import { CreateKnowledgeDto } from './dto/create-knowledge.dto';
@@ -45,7 +46,7 @@ export class KnowledgeController {
 
   // 查询知识库列表(共享的)
   @Get('list')
-  async findAll(@Param() queryDto: QueryKnowledgeDto) {
+  async findAll(@Query() queryDto: QueryKnowledgeDto) {
     return this.knowledgeService.findAll(queryDto);
   }
 
@@ -69,13 +70,13 @@ export class KnowledgeController {
   // 删除知识库
   @Delete(':id')
   async remove(@Param('id') id: string, @User() userId: number) {
-    return this.knowledgeService.remove(+id, userId);
+    return await this.knowledgeService.remove(+id, userId);
   }
   @UseGuards(JwtAuthGuard)
   // 加入知识库
   @Post('join/:id')
   async joinKnowledge(@Param('id') id: string, @User() userId: number) {
-    return this.knowledgeService.joinKnowledge(+id, userId);
+    return await this.knowledgeService.joinKnowledge(+id, userId);
   }
   @UseGuards(JwtAuthGuard)
   // 退出知识库

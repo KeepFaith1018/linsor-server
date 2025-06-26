@@ -42,7 +42,7 @@ export class FileController {
 
   // 查询知识库中的文件
   @Get('list')
-  async getFiles(@Param() dto: QueryFilesDto, @User() userId: number) {
+  async getFiles(@Query() dto: QueryFilesDto, @User() userId: number) {
     return await this.fileService.getFiles(dto, userId);
   }
 

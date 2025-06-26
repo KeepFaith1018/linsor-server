@@ -103,12 +103,9 @@ export class FileService {
   // 查询知识库中的文件
   async getFiles(dto: QueryFilesDto, userId: number) {
     try {
-      // 验证知识库权限
-      await this.validateKnowledgeAccess(dto.knowledge_id, userId);
-
       const { page = 1, limit = 20 } = dto;
       const skip = (page - 1) * limit;
-
+      dto.knowledge_id = Number(dto.knowledge_id);
       const where = {
         knowledge_id: dto.knowledge_id,
         is_deleted: false,
@@ -131,7 +128,10 @@ export class FileService {
         }),
         this.prisma.files.count({ where }),
       ]);
-
+      console.log(
+        '------------------------------------在查询知识库' + dto.knowledge_id,
+        files,
+      );
       return {
         files,
         pagination: {

@@ -299,7 +299,7 @@ export class AiService {
 
 知识库内容：
 {context}
-
+，
 用户问题：{question}
 
 请基于上述知识库内容回答用户问题：`);

@@ -67,9 +67,16 @@ export class KnowledgeService {
 
       // 如果指定了所有者ID
       if (queryDto.owner_id) {
-        where.owner_id = queryDto.owner_id;
+        where.owner_id = Number(queryDto.owner_id);
       }
+      const pages: { skip?: number; take?: number } = {};
 
+      if (queryDto.page && queryDto.page_size) {
+        const page = Number(queryDto.page);
+        const pageSize = Number(queryDto.page_size);
+        pages.skip = (page - 1) * pageSize; // 正确的 offset
+        pages.take = pageSize;
+      }
       const knowledgeList = await this.prisma.knowledge.findMany({
         where: {
           OR: [
@@ -106,12 +113,14 @@ export class KnowledgeService {
         orderBy: {
           updated_at: 'desc',
         },
+        ...pages,
       });
 
       // 格式化返回结果
       return knowledgeList.map((knowledge) => ({
         id: knowledge.id,
         name: knowledge.name,
+        avatar: knowledge.avatar,
         description: knowledge.description,
         is_shared: knowledge.is_shared,
         created_at: knowledge.created_at,

@@ -10,4 +10,7 @@ export class QueryKnowledgeDto {
   @Type(() => Number)
   @IsNumber()
   owner_id?: number;
+
+  page?: number;
+  page_size?: number;
 }
