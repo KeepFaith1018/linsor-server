@@ -5,6 +5,7 @@ import { UpdateKnowledgeDto } from './dto/update-knowledge.dto';
 import { QueryKnowledgeDto } from './dto/query-knowledge.dto';
 import { AppException } from 'src/common/exception/appException';
 import { ErrorCode } from 'src/common/utils/errorCodes';
+import { Knowledge } from './entities/knowledge.entity';
 
 @Injectable()
 export class KnowledgeService {
@@ -123,6 +124,7 @@ export class KnowledgeService {
         avatar: knowledge.avatar,
         description: knowledge.description,
         is_shared: knowledge.is_shared,
+        owner_id: knowledge.owner_id,
         created_at: knowledge.created_at,
         updated_at: knowledge.updated_at,
         owner: knowledge.users,
@@ -194,6 +196,7 @@ export class KnowledgeService {
         created_at: knowledge.created_at,
         updated_at: knowledge.updated_at,
         owner: knowledge.users,
+        owner_id: knowledge.owner_id,
         members: knowledge.knowledge_user.map((ku) => ku.users),
         files: knowledge.files,
         file_count: knowledge._count.files,

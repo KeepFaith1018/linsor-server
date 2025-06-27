@@ -259,9 +259,7 @@ export class AiService {
       const stream = await this.globalChatModel.stream(messages);
 
       for await (const chunk of stream) {
-        if (chunk.content) {
-          yield chunk.content as string;
-        }
+        yield JSON.stringify({ content: chunk.content });
       }
 
       console.log(`[${new Date().toISOString()}] ✅ 全网搜索流式响应完成`);
