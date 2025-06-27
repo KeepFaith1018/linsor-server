@@ -8,27 +8,25 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// 对话会话表 - 修改后
 model conversations {
   id           Int        @id @default(autoincrement())
-  user_id      Int     
-  knowledge_id Int?      // 改为可选，全网对话时为null
-  type         String    // 新增："global" 或 "knowledge"
-  title        String?   // 新增：对话标题
-  is_deleted   Boolean?  @default(false) // 新增：逻辑删除标记
-  created_at   DateTime? @default(now()) @db.Timestamp(6)
-  updated_at   DateTime? @default(now()) @db.Timestamp(6)
+  user_id      Int
+  knowledge_id Int?
+  type         String
+  title        String?
+  is_deleted   Boolean?   @default(false)
+  created_at   DateTime?  @default(now()) @db.Timestamp(6)
+  updated_at   DateTime?  @default(now()) @db.Timestamp(6)
   knowledge    knowledge? @relation(fields: [knowledge_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users        users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users        users      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   messages     messages[]
 }
 
-// 消息表 - 修改后
 model messages {
   id              Int           @id @default(autoincrement())
   conversation_id Int
-  sender_type     String        // 新增："user" 或 "ai"
-  isSuccess       Boolean?      // 新增：是否成功
+  sender_type     String
+  isSuccess       Boolean?
   content         String
   created_at      DateTime?     @default(now()) @db.Timestamp(6)
   conversations   conversations @relation(fields: [conversation_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -51,7 +49,7 @@ model knowledge {
   name           String
   description    String?
   owner_id       Int
-  avatar         String?           
+  avatar         String?
   is_shared      Boolean?         @default(false)
   is_deleted     Boolean?         @default(false)
   created_at     DateTime?        @default(now()) @db.Timestamp(6)
@@ -65,7 +63,7 @@ model knowledge {
 model knowledge_user {
   id           Int       @id @default(autoincrement())
   knowledge_id Int
-  user_id      Int    
+  user_id      Int
   created_at   DateTime? @default(now()) @db.Timestamp(6)
   knowledge    knowledge @relation(fields: [knowledge_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   users        users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
@@ -73,12 +71,10 @@ model knowledge_user {
   @@unique([knowledge_id, user_id])
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-
-
 model users {
-  id             Int        @id @default(autoincrement())
-  openid         String    @unique // 微信openid
-  session_key    String   // 微信session_key
+  id             Int              @id @default(autoincrement())
+  openid         String           @unique
+  session_key    String
   nickname       String?
   avatar         String?
   created_at     DateTime?        @default(now()) @db.Timestamp(6)

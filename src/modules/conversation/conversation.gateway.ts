@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import * as WebSocket from 'ws';
 import { ConversationService } from './conversation.service';
+import path from 'path';
 
 @Injectable()
 export class ConversationGateway implements OnModuleInit {
@@ -10,7 +11,7 @@ export class ConversationGateway implements OnModuleInit {
   constructor(private readonly conversationService: ConversationService) {}
 
   onModuleInit() {
-    this.wss = new WebSocket.Server({ port: 3001 });
+    this.wss = new WebSocket.Server({ port: 3001, path: '/ws' });
     console.log('原生WebSocket服务器启动在端口 3001');
 
     this.wss.on('connection', (ws: WebSocket) => {
