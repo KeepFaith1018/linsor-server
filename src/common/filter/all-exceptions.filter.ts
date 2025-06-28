@@ -8,15 +8,9 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Response } from 'express';
-import { ErrorCode } from '../utils/errorCodes';
 import { Result } from '../utils/result';
 import { AppException } from '../exception/appException';
 import { WINSTON_MODULE_PROVIDER } from 'nest-winston';
-type HttpExceptionResponse = {
-  message: string;
-  error?: string;
-  statusCode: number;
-};
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -26,8 +20,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
 
-    let code = ErrorCode.UNKNOWN_ERROR;
-    let message = '服务器内部错误';
+    let code = 500;
+    let message = '服务出错了，稍后重试';
     let status = HttpStatus.OK;
 
     if (exception instanceof HttpException) {
@@ -43,12 +37,53 @@ export class AllExceptionsFilter implements ExceptionFilter {
         return;
       }
       // 对于其他基于http的异常
-      const httpStatus = exception.getStatus();
-      if (typeof res === 'string') {
-        message = res;
-      } else if (typeof res === 'object') {
-        message = (res as HttpExceptionResponse).message;
+      const httpStatus = exception.getStatus() as HttpStatus;
+
+      switch (httpStatus) {
+        case HttpStatus.BAD_REQUEST:
+          message = '请求参数不正确，请检查后再试';
+          break;
+        case HttpStatus.UNAUTHORIZED:
+          message = '未登录或登录已失效，请重新登录';
+          break;
+        case HttpStatus.FORBIDDEN:
+          message = '您没有权限执行此操作';
+          break;
+        case HttpStatus.NOT_FOUND:
+          message = '资源不存在或已被删除';
+          break;
+        case HttpStatus.CONFLICT:
+          message = '资源已存在，无法重复操作';
+          break;
+        case HttpStatus.PAYLOAD_TOO_LARGE:
+          message = '请求体过大，已被服务器拒绝';
+          break;
+        case HttpStatus.UNSUPPORTED_MEDIA_TYPE:
+          message = '不支持的文件或数据类型';
+          break;
+        case HttpStatus.UNPROCESSABLE_ENTITY:
+          message = '数据验证未通过，请检查提交信息';
+          break;
+        case HttpStatus.TOO_MANY_REQUESTS:
+          message = '请求过于频繁，请稍后再试';
+          break;
+        case HttpStatus.INTERNAL_SERVER_ERROR:
+          message = '服务器异常，请稍后再试';
+          break;
+        case HttpStatus.NOT_IMPLEMENTED:
+          message = '接口暂未实现';
+          break;
+        case HttpStatus.SERVICE_UNAVAILABLE:
+          message = '服务暂不可用，请稍后再试';
+          break;
+        case HttpStatus.GATEWAY_TIMEOUT:
+          message = '网关超时，请重试';
+          break;
+        default:
+          message = '服务异常，请稍后再试';
+          break;
       }
+
       status = httpStatus;
       code = httpStatus;
       this.logger.error(

@@ -8,32 +8,14 @@ import { TextLoader } from 'langchain/document_loaders/fs/text';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as Tesseract from 'tesseract.js';
-import { Document } from 'langchain/document';
 import { randomUUID } from 'crypto';
-// 类型定义
-interface FileProcessResult {
-  content: string;
-  chunks: string[];
-}
-
-interface SimilaritySearchResult {
-  content: string;
-  score: number;
-  metadata: Record<string, any>;
-}
-
-interface QdrantPoint {
-  id: string;
-  vector: number[];
-  payload: {
-    fileId: number;
-    knowledgeId: number;
-    content: string;
-    chunkIndex: number;
-    originalContent: string;
-    [key: string]: any;
-  };
-}
+import {
+  FileProcessResult,
+  SimilaritySearchResult,
+  QdrantPoint,
+} from './types';
+import { AppException } from 'src/common/exception/appException';
+import { ErrorCode } from 'src/common/utils/errorCodes';
 
 @Injectable()
 export class VectorService {
@@ -84,7 +66,7 @@ export class VectorService {
           distance: 'Cosine',
         },
       });
-      this.logger.log(`Created collection: ${collectionName}`);
+      this.logger.log(`因为没有${collectionName}，所以创建了一个新的集合`);
     }
   }
 
@@ -95,79 +77,74 @@ export class VectorService {
     filePath: string,
     metadata: Record<string, any> = {},
   ) {
-    //   : Promise<AddDocumentResult>
-    try {
-      const collectionName = `knowledge_${knowledgeId}`;
-      await this.ensureCollection(collectionName);
+    const collectionName = `knowledge_${knowledgeId}`;
+    await this.ensureCollection(collectionName);
 
-      // 根据文件类型获取内容和分割文档
-      const { content, chunks } = await this.processFileByType(
-        filePath,
-        metadata,
+    // 根据文件类型获取内容和分割文档
+    const { content, chunks } = await this.processFileByType(
+      filePath,
+      metadata,
+    );
+
+    if (!content || chunks.length === 0) {
+      throw new AppException(ErrorCode.VECTOR_FILE_FAILED);
+    }
+
+    // 分批处理chunks，避免超出API限制
+    const batchSize = 10;
+    const points: QdrantPoint[] = [];
+
+    for (
+      let batchStart = 0;
+      batchStart < chunks.length;
+      batchStart += batchSize
+    ) {
+      const batchEnd = Math.min(batchStart + batchSize, chunks.length);
+      const batchChunks = chunks.slice(batchStart, batchEnd);
+
+      this.logger.log(
+        `正在处理第${Math.floor(batchStart / batchSize) + 1}/${Math.ceil(chunks.length / batchSize)}批次 (${batchChunks.length} chunks)`,
       );
 
-      if (!content || chunks.length === 0) {
-        throw new Error('无法从文件中提取内容');
+      // 批量生成向量
+      const batchVectors = await this.embeddings.embedDocuments(batchChunks);
+
+      this.logger.log(
+        `第${Math.floor(batchStart / batchSize) + 1}批次向量加载成功`,
+      );
+      // 为当前批次的每个chunk创建point
+      for (let i = 0; i < batchChunks.length; i++) {
+        const globalIndex = batchStart + i;
+        const chunk = batchChunks[i];
+        const vector = batchVectors[i];
+
+        points.push({
+          id: randomUUID(),
+          vector,
+          payload: {
+            fileId,
+            knowledgeId,
+            content: chunk,
+            chunkIndex: globalIndex,
+            originalContent: content.substring(0, 500),
+            ...metadata,
+          },
+        });
       }
 
-      // 分批处理chunks，避免超出API限制
-      const batchSize = 10;
-      const points: QdrantPoint[] = [];
-
-      for (
-        let batchStart = 0;
-        batchStart < chunks.length;
-        batchStart += batchSize
-      ) {
-        const batchEnd = Math.min(batchStart + batchSize, chunks.length);
-        const batchChunks = chunks.slice(batchStart, batchEnd);
-
-        this.logger.log(
-          `Processing batch ${Math.floor(batchStart / batchSize) + 1}/${Math.ceil(chunks.length / batchSize)} (${batchChunks.length} chunks)`,
-        );
-
-        // 批量生成向量
-        const batchVectors = await this.embeddings.embedDocuments(batchChunks);
-
-        this.logger.verbose('向量加载成功', batchVectors);
-        // 为当前批次的每个chunk创建point
-        for (let i = 0; i < batchChunks.length; i++) {
-          const globalIndex = batchStart + i;
-          const chunk = batchChunks[i];
-          const vector = batchVectors[i];
-
-          points.push({
-            id: randomUUID(),
-            vector,
-            payload: {
-              fileId,
-              knowledgeId,
-              content: chunk,
-              chunkIndex: globalIndex,
-              originalContent: content.substring(0, 500),
-              ...metadata,
-            },
-          });
-        }
-
-        // 添加延迟以避免API限制
-        if (batchEnd < chunks.length) {
-          await this.delay(1000); // 延迟1秒
-        }
+      // 添加延迟以避免API限制
+      if (batchEnd < chunks.length) {
+        await this.delay(50); // 每批次延迟1秒
       }
-      this.logger.verbose('向量数据库添加成功');
-      await this.qdrantClient.upsert(collectionName, {
-        wait: true,
-        points,
-      });
-
-      this.logger.log(`Added ${chunks.length} chunks for file ${fileId}`);
-
-      return { chunksCount: chunks.length, contentLength: content.length };
-    } catch (error) {
-      this.logger.error(`Error adding document:`, error);
-      throw error;
     }
+    await this.qdrantClient.upsert(collectionName, {
+      wait: true,
+      points,
+    });
+
+    this.logger.log(`已为文件 ${fileId} 添加了 ${chunks.length} 个文本块`);
+
+    return { chunksCount: chunks.length, contentLength: content.length };
   }
 
   // 添加延迟工具方法
@@ -188,48 +165,41 @@ export class VectorService {
     let content = '';
     let chunks: string[] = [];
 
-    try {
-      switch (fileExtension) {
-        case '.txt':
-          content = await this.processTxtFile(filePath);
-          chunks = await this.textSplitter.splitText(content);
-          break;
+    switch (fileExtension) {
+      case '.txt':
+        content = await this.processTxtFile(filePath);
+        chunks = await this.textSplitter.splitText(content);
+        break;
 
-        case '.md':
-          content = this.processMarkdownFile(filePath);
-          chunks = await this.markdownSplitter.splitText(content);
-          break;
+      case '.md':
+        content = this.processMarkdownFile(filePath);
+        chunks = await this.markdownSplitter.splitText(content);
+        break;
 
-        case '.docx':
-        case '.doc':
-          content = await this.processWordFile(filePath);
-          chunks = await this.textSplitter.splitText(content);
-          break;
+      case '.docx':
+      case '.doc':
+        content = await this.processWordFile(filePath);
+        chunks = await this.textSplitter.splitText(content);
+        break;
 
-        case '.pdf':
-          content = await this.processPdfFile(filePath);
-          chunks = await this.textSplitter.splitText(content);
-          break;
+      case '.pdf':
+        content = await this.processPdfFile(filePath);
+        chunks = await this.textSplitter.splitText(content);
+        break;
 
-        case '.jpg':
-        case '.jpeg':
-        case '.png':
-        case '.bmp':
-        case '.tiff':
-          content = await this.processImageFile(filePath);
-          chunks = await this.textSplitter.splitText(content);
-          break;
-        default:
-          throw new Error(`不支持的文件类型: ${fileExtension}`);
-      }
-
-      return { content, chunks };
-    } catch (error) {
-      this.logger.error(
-        `不能处理的文件 ${fileName}: ${(error as Error).message}`,
-      );
-      throw error;
+      case '.jpg':
+      case '.jpeg':
+      case '.png':
+      case '.bmp':
+      case '.tiff':
+        content = await this.processImageFile(filePath);
+        chunks = await this.textSplitter.splitText(content);
+        break;
+      default:
+        throw new AppException(ErrorCode.VECTOR_FILE_UNSUPPORTED);
     }
+
+    return { content, chunks };
   }
 
   // 处理TXT文件
@@ -259,53 +229,40 @@ export class VectorService {
 
   // 处理Word文件
   private async processWordFile(filePath: string): Promise<string> {
-    try {
-      const loader = new DocxLoader(filePath);
-      const docs = await loader.load();
-      return docs.map((doc) => doc.pageContent).join('\n');
-    } catch (error) {
-      throw new Error(`处理Word文件失败: ${(error as Error).message}`);
-    }
+    const loader = new DocxLoader(filePath);
+    const docs = await loader.load();
+    return docs.map((doc) => doc.pageContent).join('\n');
   }
 
   // 处理PDF文件
   private async processPdfFile(filePath: string): Promise<string> {
-    try {
-      const loader = new PDFLoader(filePath, {
-        splitPages: false, // 不分页，获取完整内容
-      });
-      const docs = await loader.load();
-      return docs.map((doc) => doc.pageContent).join('\n');
-    } catch (error) {
-      throw new Error(`处理PDF文件失败: ${(error as Error).message}`);
-    }
+    const loader = new PDFLoader(filePath, {
+      splitPages: false, // 不分页，获取完整内容
+    });
+    const docs = await loader.load();
+    return docs.map((doc) => doc.pageContent).join('\n');
   }
 
   // 处理图片文件（OCR）
   private async processImageFile(filePath: string): Promise<string> {
-    try {
-      this.logger.log(`Starting OCR for image: ${path.basename(filePath)}`);
+    this.logger.log(`Starting OCR for image: ${path.basename(filePath)}`);
 
-      const {
-        data: { text },
-      } = await Tesseract.recognize(filePath, 'chi_sim+eng', {
-        logger: (m: Tesseract.LoggerMessage) => {
-          if (m.status === 'recognizing text') {
-            this.logger.log(`OCR Progress: ${Math.round(m.progress * 100)}%`);
-          }
-        },
-      });
+    const {
+      data: { text },
+    } = await Tesseract.recognize(filePath, 'chi_sim+eng', {
+      logger: (m: Tesseract.LoggerMessage) => {
+        if (m.status === 'recognizing text') {
+          this.logger.log(`OCR Progress: ${Math.round(m.progress * 100)}%`);
+        }
+      },
+    });
 
-      if (!text || text.trim().length === 0) {
-        throw new Error('OCR未能从图片中提取到文本内容');
-      }
-
-      this.logger.log(`OCR completed, extracted ${text.length} characters`);
-      // TODO: as 类型报错。
-      return text;
-    } catch (error) {
-      throw new Error(`图片OCR处理失败: ${(error as Error).message}`);
+    if (!text || text.trim().length === 0) {
+      throw new AppException(ErrorCode.VECTOR_FILE_IMG_EMPTY);
     }
+
+    this.logger.log(`OCR completed, extracted ${text.length} characters`);
+    return text;
   }
 
   // 获取文件类型信息
@@ -339,22 +296,15 @@ export class VectorService {
 
   // 从向量数据库删除文档
   async removeDocument(knowledgeId: number, fileId: number): Promise<void> {
-    try {
-      const collectionName = `knowledge_${knowledgeId}`;
+    const collectionName = `knowledge_${knowledgeId}`;
 
-      await this.qdrantClient.delete(collectionName, {
-        filter: {
-          must: [{ key: 'fileId', match: { value: fileId } }],
-        },
-      });
+    await this.qdrantClient.delete(collectionName, {
+      filter: {
+        must: [{ key: 'fileId', match: { value: fileId } }],
+      },
+    });
 
-      this.logger.log(
-        `Removed document ${fileId} from knowledge ${knowledgeId}`,
-      );
-    } catch (error) {
-      this.logger.error(`Error removing document: ${(error as Error).message}`);
-      throw error;
-    }
+    this.logger.log(`Removed document ${fileId} from knowledge ${knowledgeId}`);
   }
 
   // 相似性搜索
@@ -363,40 +313,26 @@ export class VectorService {
     query: string,
     limit: number = 5,
   ): Promise<SimilaritySearchResult[]> {
-    try {
-      const collectionName = `knowledge_${knowledgeId}`;
-      const queryVector = await this.embeddings.embedQuery(query);
+    const collectionName = `knowledge_${knowledgeId}`;
+    const queryVector = await this.embeddings.embedQuery(query);
 
-      const searchResult = await this.qdrantClient.search(collectionName, {
-        vector: queryVector,
-        limit,
-        with_payload: true,
-      });
+    const searchResult = await this.qdrantClient.search(collectionName, {
+      vector: queryVector,
+      limit,
+      with_payload: true,
+    });
 
-      return searchResult.map((point) => ({
-        content: point.payload?.content as string,
-        score: point.score || 0,
-        metadata: point.payload as Record<string, any>,
-      }));
-    } catch (error) {
-      this.logger.error(
-        `Error in similarity search: ${(error as Error).message}`,
-      );
-      throw error;
-    }
+    return searchResult.map((point) => ({
+      content: point.payload?.content as string,
+      score: point.score || 0,
+      metadata: point.payload as Record<string, any>,
+    }));
   }
 
   // 删除知识库集合
   async deleteCollection(knowledgeId: number): Promise<void> {
-    try {
-      const collectionName = `knowledge_${knowledgeId}`;
-      await this.qdrantClient.deleteCollection(collectionName);
-      this.logger.log(`Deleted collection: ${collectionName}`);
-    } catch (error) {
-      this.logger.error(
-        `Error deleting collection: ${(error as Error).message}`,
-      );
-      throw error;
-    }
+    const collectionName = `knowledge_${knowledgeId}`;
+    await this.qdrantClient.deleteCollection(collectionName);
+    this.logger.log(`Deleted collection: ${collectionName}`);
   }
 }

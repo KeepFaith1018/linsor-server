@@ -1,11 +1,12 @@
-import { Injectable, HttpException, HttpStatus, Inject } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { QueryFilesDto } from './dto/query-files.dto';
 import { SearchFilesDto } from './dto/search-files.dto';
 import * as fs from 'fs/promises';
 import { AiService } from '../ai/ai.service';
 import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
-import { log } from 'console';
+import { AppException } from 'src/common/exception/appException';
+import { ErrorCode } from 'src/common/utils/errorCodes';
 
 @Injectable()
 export class FileService {
@@ -17,37 +18,6 @@ export class FileService {
     private readonly aiService: AiService,
   ) {}
 
-  // 更新向量数据库相关方法
-  private async addToVectorDatabase(
-    knowledgeId: number,
-    fileId: number,
-    path: string,
-    metadata: any = {},
-  ) {
-    try {
-      return await this.aiService.processFileForVector(
-        knowledgeId,
-        fileId,
-        path,
-        metadata,
-      );
-    } catch (error) {
-      this.logger.error(`Error adding to vector database: ${error.message}`);
-      throw error;
-    }
-  }
-
-  private async removeFromVectorDatabase(knowledgeId: number, fileId: number) {
-    try {
-      return await this.aiService.removeFileFromVector(knowledgeId, fileId);
-    } catch (error) {
-      this.logger.error(
-        `Error removing from vector database: ${error.message}`,
-      );
-      throw error;
-    }
-  }
-
   // 上传文件
   async uploadFile(
     file: Express.Multer.File,
@@ -58,8 +28,9 @@ export class FileService {
     try {
       // 验证知识库权限
       await this.validateKnowledgeAccess(knowledge_id, userId);
-      const type = fileName.split('.').pop()?.toLocaleUpperCase();
+
       // 创建文件记录
+      const type = fileName.split('.').pop()?.toLocaleUpperCase();
       const fileRecord = await this.prisma.files.create({
         data: {
           knowledge_id: knowledge_id,
@@ -74,7 +45,12 @@ export class FileService {
         },
       });
 
-      await this.addToVectorDatabase(knowledge_id, fileRecord.id, file.path);
+      await this.aiService.processFileForVector(
+        knowledge_id,
+        fileRecord.id,
+        fileRecord.file_url,
+        {},
+      );
       return {
         id: fileRecord.id,
         name: fileRecord.name,
@@ -85,174 +61,145 @@ export class FileService {
       };
     } catch (error) {
       // 如果数据库操作失败，删除已上传的文件
-
       const localPath = file.path;
       try {
         if (localPath) {
           await fs.access(localPath); // 检查文件是否存在
           await fs.unlink(localPath); // 删除文件
-          this.logger.info(`成功删除上传失败本地文件: ${localPath}`);
         }
       } catch (err) {
-        this.logger.warn(`删除本地文件失败: ${localPath}`, err.message);
+        throw new Error('删除本地文件失败' + err);
       }
-      throw new HttpException('文件上传失败', HttpStatus.INTERNAL_SERVER_ERROR);
+      throw error;
     }
   }
 
   // 查询知识库中的文件
   async getFiles(dto: QueryFilesDto, userId: number) {
-    try {
-      const { page = 1, limit = 20 } = dto;
-      const skip = (page - 1) * limit;
-      dto.knowledge_id = Number(dto.knowledge_id);
-      const where = {
-        knowledge_id: dto.knowledge_id,
-        is_deleted: false,
-      };
+    const { page = 1, limit = 20 } = dto;
+    const skip = (page - 1) * limit;
+    dto.knowledge_id = Number(dto.knowledge_id);
 
-      const [files, total] = await Promise.all([
-        this.prisma.files.findMany({
-          where,
-          select: {
-            id: true,
-            name: true,
-            file_type: true,
-            file_url: true,
-            created_at: true,
-            updated_at: true,
-          },
-          orderBy: { created_at: 'desc' },
-          skip,
-          take: limit,
-        }),
-        this.prisma.files.count({ where }),
-      ]);
-      console.log(
-        '------------------------------------在查询知识库' + dto.knowledge_id,
-        files,
-      );
-      return {
-        files,
-        pagination: {
-          page,
-          limit,
-          total,
-          totalPages: Math.ceil(total / limit),
+    // 验证知识库访问权限
+    await this.validateKnowledgeAccess(dto.knowledge_id, userId);
+
+    const where = {
+      knowledge_id: dto.knowledge_id,
+      is_deleted: false,
+    };
+
+    const [files, total] = await Promise.all([
+      this.prisma.files.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          file_type: true,
+          file_url: true,
+          created_at: true,
+          updated_at: true,
         },
-      };
-    } catch (error) {
-      throw new HttpException(
-        error.message || '查询文件失败',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.files.count({ where }),
+    ]);
+    return {
+      files,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   // 搜索知识库中的文件
   async searchFiles(dto: SearchFilesDto, userId: number) {
-    try {
-      // 验证知识库权限
-      await this.validateKnowledgeAccess(dto.knowledge_id, userId);
-      console.log(dto);
-      const { page = 1, limit = 20, filename } = dto;
-      const skip = (page - 1) * limit;
+    // 验证知识库权限
+    await this.validateKnowledgeAccess(dto.knowledge_id, userId);
+    const { page = 1, limit = 20, filename } = dto;
+    const skip = (page - 1) * limit;
+    const where = {
+      knowledge_id: Number(dto.knowledge_id),
+      is_deleted: false,
+      name: {
+        contains: filename,
+        mode: 'insensitive' as const, // 不区分大小写
+      },
+    };
 
-      console.log('---------------------' + filename);
-
-      const where = {
-        knowledge_id: Number(dto.knowledge_id),
-        is_deleted: false,
-        name: {
-          contains: filename,
-          mode: 'insensitive' as const, // 不区分大小写
+    const [files, total] = await Promise.all([
+      this.prisma.files.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          file_type: true,
+          file_url: true,
+          created_at: true,
+          updated_at: true,
         },
-      };
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.files.count({ where }),
+    ]);
 
-      const [files, total] = await Promise.all([
-        this.prisma.files.findMany({
-          where,
-          select: {
-            id: true,
-            name: true,
-            file_type: true,
-            file_url: true,
-            created_at: true,
-            updated_at: true,
-          },
-          orderBy: { created_at: 'desc' },
-          skip,
-          take: limit,
-        }),
-        this.prisma.files.count({ where }),
-      ]);
-
-      return {
-        files,
-        pagination: {
-          page,
-          limit,
-          total,
-          totalPages: Math.ceil(total / limit),
-        },
-        searchTerm: filename,
-      };
-    } catch (error) {
-      throw new HttpException(
-        error.message || '搜索文件失败',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    return {
+      files,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+      searchTerm: filename,
+    };
   }
 
   // 删除文件
   async deleteFile(knowledgeId: number, fileId: number, userId: number) {
-    try {
-      // 查找文件记录
-      const file = await this.prisma.files.findFirst({
-        where: {
-          id: fileId,
-          is_deleted: false,
-        },
-        include: {
-          knowledge: true,
-        },
-      });
+    // 查找文件记录
+    const file = await this.prisma.files.findFirst({
+      where: {
+        id: fileId,
+        is_deleted: false,
+      },
+      include: {
+        knowledge: true,
+      },
+    });
 
-      if (!file) {
-        throw new HttpException('文件不存在', HttpStatus.NOT_FOUND);
-      }
-
-      // 验证知识库权限
-      await this.validateKnowledgeAccess(file.knowledge_id, userId);
-
-      // 逻辑删除文件记录
-      await this.prisma.files.update({
-        where: { id: fileId },
-        data: { is_deleted: true },
-      });
-      const localPath = file.file_url.replace('static', 'uploads');
-      // 删除本地文件
-      try {
-        if (localPath) {
-          await fs.access(localPath); // 检查文件是否存在
-          await fs.unlink(localPath); // 删除文件
-          this.logger.info(`成功删除本地文件: ${localPath}`);
-        }
-      } catch (err) {
-        this.logger.warn(`删除本地文件失败: ${localPath}`, err);
-      }
-
-      // 从向量数据库删除（预留实现）
-      await this.removeFromVectorDatabase(knowledgeId, fileId);
-
-      return { message: '文件删除成功' };
-    } catch (error) {
-      throw new HttpException(
-        error.message || '删除文件失败',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+    if (!file) {
+      throw new AppException(ErrorCode.FILE_NOT_FOUND);
     }
+
+    // 验证知识库权限
+    await this.validateKnowledgeAccess(file.knowledge_id, userId);
+
+    // 逻辑删除文件记录
+    await this.prisma.files.update({
+      where: { id: fileId },
+      data: { is_deleted: true },
+    });
+    const localPath = file.file_url.replace('static', 'uploads');
+    // 删除本地文件
+    try {
+      if (localPath) {
+        await fs.access(localPath); // 检查文件是否存在
+        await fs.unlink(localPath); // 删除文件
+      }
+    } catch (err) {
+      this.logger.error(`删除本地文件失败: ${localPath}`, err);
+    }
+
+    await this.aiService.removeFileFromVector(knowledgeId, fileId);
+
+    return { message: '文件删除成功' };
   }
 
   // 验证知识库访问权限
@@ -274,9 +221,8 @@ export class FileService {
     });
 
     if (!knowledge) {
-      throw new HttpException('知识库不存在或无访问权限', HttpStatus.FORBIDDEN);
+      throw new AppException(ErrorCode.KNOWLEDGE_UNAUTHORIZED);
     }
-
     return knowledge;
   }
 }

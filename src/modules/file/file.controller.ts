@@ -4,7 +4,6 @@ import {
   Post,
   Get,
   Delete,
-  Param,
   Query,
   UploadedFile,
   UseGuards,
@@ -17,13 +16,18 @@ import { JwtAuthGuard } from 'src/common/guards/jwtGuard.guard';
 import { User } from 'src/common/decorators/user.decorator';
 import { QueryFilesDto } from './dto/query-files.dto';
 import { SearchFilesDto } from './dto/search-files.dto';
-
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
+@ApiTags('文件')
 @Controller('file')
 @UseGuards(JwtAuthGuard)
 export class FileController {
   constructor(private readonly fileService: FileService) {}
 
   // 上传文件
+  @ApiOperation({
+    summary: '上传文件',
+    description: '',
+  })
   @Post('upload')
   @UseInterceptors(FileInterceptor('file'))
   async uploadFile(
@@ -41,12 +45,20 @@ export class FileController {
   }
 
   // 查询知识库中的文件
+  @ApiOperation({
+    summary: '查询文件',
+    description: '',
+  })
   @Get('list')
   async getFiles(@Query() dto: QueryFilesDto, @User() userId: number) {
     return await this.fileService.getFiles(dto, userId);
   }
 
   // 搜索知识库中的文件
+  @ApiOperation({
+    summary: '搜索文件',
+    description: '',
+  })
   @Get('search')
   async searchFiles(@Query() dto: SearchFilesDto, @User() userId: number) {
     dto.knowledge_id = Number(dto.knowledge_id);
@@ -56,6 +68,10 @@ export class FileController {
   }
 
   // 删除文件
+  @ApiOperation({
+    summary: '删除文件',
+    description: '',
+  })
   @Delete()
   async deleteFile(
     @Body('file_id', ParseIntPipe) fileId: number,

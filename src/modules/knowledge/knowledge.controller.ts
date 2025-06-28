@@ -4,38 +4,48 @@ import {
   Post,
   Body,
   Param,
-  Delete,
   UseGuards,
-  Put,
   Query,
 } from '@nestjs/common';
 import { KnowledgeService } from './knowledge.service';
 import { CreateKnowledgeDto } from './dto/create-knowledge.dto';
-import { UpdateKnowledgeDto } from './dto/update-knowledge.dto';
 import { QueryKnowledgeDto } from './dto/query-knowledge.dto';
 import { JwtAuthGuard } from 'src/common/guards/jwtGuard.guard';
 import { User } from 'src/common/decorators/user.decorator';
-
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
+@ApiTags('知识库')
 @Controller('knowledge')
 export class KnowledgeController {
   constructor(private readonly knowledgeService: KnowledgeService) {}
 
-  @UseGuards(JwtAuthGuard)
   // 查询个人知识库
+  @ApiOperation({
+    summary: '查询个人知识库',
+    description: '',
+  })
+  @UseGuards(JwtAuthGuard)
   @Get('personal')
   async findPersonal(@User() userId: number) {
     return this.knowledgeService.findPersonal(userId);
   }
 
-  // 查询个人加入的共享知识库
+  // 查询个人加入的共享知识库列表
+  @ApiOperation({
+    summary: '查询个人加入的共享知识库',
+    description: '',
+  })
   @Get('joined')
   @UseGuards(JwtAuthGuard)
   async findJoined(@User() userId: number) {
     return this.knowledgeService.findJoined(userId);
   }
 
-  @UseGuards(JwtAuthGuard)
   // 创建知识库
+  @ApiOperation({
+    summary: '创建知识库',
+    description: '',
+  })
+  @UseGuards(JwtAuthGuard)
   @Post('create')
   async create(
     @Body() createKnowledgeDto: CreateKnowledgeDto,
@@ -45,53 +55,43 @@ export class KnowledgeController {
   }
 
   // 查询知识库列表(共享的)
+  @ApiOperation({
+    summary: '查询共享的知识库',
+    description: '',
+  })
   @Get('list')
   async findAll(@Query() queryDto: QueryKnowledgeDto) {
     return this.knowledgeService.findAll(queryDto);
   }
 
   // 查询单个知识库
+  @ApiOperation({
+    summary: '查询单独知识库',
+    description: '',
+  })
   @Get(':id')
   @UseGuards(JwtAuthGuard)
   async findOne(@Param('id') id: string, @User() userId: number) {
     return this.knowledgeService.findOne(+id, userId);
   }
-  @UseGuards(JwtAuthGuard)
-  // 更新知识库
-  @Put(':id')
-  async update(
-    @Param('id') id: string,
-    @Body() updateKnowledgeDto: UpdateKnowledgeDto,
-    @User() userId: number,
-  ) {
-    return this.knowledgeService.update(+id, updateKnowledgeDto, userId);
-  }
-  @UseGuards(JwtAuthGuard)
-  // 删除知识库
-  @Delete(':id')
-  async remove(@Param('id') id: string, @User() userId: number) {
-    return await this.knowledgeService.remove(+id, userId);
-  }
-  @UseGuards(JwtAuthGuard)
   // 加入知识库
+  @ApiOperation({
+    summary: '查询单独知识库',
+    description: '',
+  })
+  @UseGuards(JwtAuthGuard)
   @Post('join/:id')
   async joinKnowledge(@Param('id') id: string, @User() userId: number) {
     return await this.knowledgeService.joinKnowledge(+id, userId);
   }
-  @UseGuards(JwtAuthGuard)
   // 退出知识库
+  @ApiOperation({
+    summary: '查询单独知识库',
+    description: '',
+  })
+  @UseGuards(JwtAuthGuard)
   @Post('leave/:id')
   async leaveKnowledge(@Param('id') id: string, @User() userId: number) {
     return this.knowledgeService.leaveKnowledge(+id, userId);
-  }
-  @UseGuards(JwtAuthGuard)
-  // 移除知识库成员
-  @Delete('member/:id/:userId')
-  async removeMember(
-    @Param('id') id: string,
-    @Param('userId') memberId: string,
-    @User() currentUserId: number,
-  ) {
-    return this.knowledgeService.removeMember(+id, +memberId, currentUserId);
   }
 }
