@@ -93,7 +93,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
       );
     } else if (exception instanceof Error) {
       // 处理普通JavaScript错误
-      message = exception.message;
       this.logger.error(
         `JS错误 Error: ${exception.stack}`,
         null,

@@ -30,6 +30,7 @@ export class ConversationService {
         user_id: userId,
         type: knowledge_id ? 'knowledge' : 'global',
         is_deleted: false,
+        knowledge_id: knowledge_id || null,
       },
       include: {
         knowledge: {
