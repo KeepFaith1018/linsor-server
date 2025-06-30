@@ -44,7 +44,6 @@ export class FileService {
           },
         },
       });
-
       await this.aiService.processFileForVector(
         knowledge_id,
         fileRecord.id,

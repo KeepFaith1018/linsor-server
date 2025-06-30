@@ -93,19 +93,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
       );
     } else if (exception instanceof Error) {
       // 处理普通JavaScript错误
-      this.logger.error(
-        `JS错误 Error: ${exception.stack}`,
-        null,
-        AllExceptionsFilter.name,
-      );
+      this.logger.error(`JS错误 Error: ${exception.stack}`, exception.name);
     } else {
       // 处理其他类型的异常
       message = String(exception);
-      this.logger.error(
-        `未识别的异常 Exception: ${message}`,
-        null,
-        AllExceptionsFilter.name,
-      );
+      this.logger.error(`未识别的异常 Exception: ${message}`);
     }
     // 返回统一的响应格式
     response.status(status).json(Result.error(code, message));

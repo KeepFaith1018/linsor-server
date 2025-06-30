@@ -82,7 +82,7 @@ export class VectorService {
 
     // 根据文件类型获取内容和分割文档
     const { content, chunks } = await this.processFileByType(
-      filePath,
+      filePath.replace('static', 'uploads'),
       metadata,
     );
 
@@ -159,7 +159,6 @@ export class VectorService {
   ): Promise<FileProcessResult> {
     const fileExtension = path.extname(filePath).toLowerCase();
     const fileName = path.basename(filePath);
-
     this.logger.log(`正在处理文件: ${fileName}, 类型: ${fileExtension}`);
 
     let content = '';
@@ -314,8 +313,19 @@ export class VectorService {
     limit: number = 5,
   ): Promise<SimilaritySearchResult[]> {
     const collectionName = `knowledge_${knowledgeId}`;
-    const queryVector = await this.embeddings.embedQuery(query);
+    const collections = await this.qdrantClient.getCollections();
+    const collectionExists = collections.collections.some(
+      (collection) => collection.name === collectionName,
+    );
 
+    if (!collectionExists) {
+      this.logger.warn(
+        `Collection ${collectionName} does not exist, returning empty results`,
+      );
+      return [];
+    }
+
+    const queryVector = await this.embeddings.embedQuery(query);
     const searchResult = await this.qdrantClient.search(collectionName, {
       vector: queryVector,
       limit,

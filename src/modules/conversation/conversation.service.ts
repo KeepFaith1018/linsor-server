@@ -117,12 +117,13 @@ export class ConversationService {
     userId: number,
   ): AsyncGenerator<string, void, unknown> {
     // 1. 验证会话权限
-    const conversation = await this.prisma.conversations.findUnique({
+    const conversation = await this.prisma.conversations.findFirst({
       where: {
         id: conversationId,
         user_id: userId,
       },
     });
+
     if (!conversation) {
       throw new AppException(ErrorCode.CONVERSATION_UNAUTHORIZED);
     }

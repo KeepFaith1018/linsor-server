@@ -37,7 +37,8 @@ export class LoggingInterceptor implements NestInterceptor {
           }),
           tap((data) => {
             const duration = Date.now() - now;
-            this.logger.info(`--- Request End ---`, {
+            this.logger.info(`--- Request End --- `, {
+              data: data,
               context: LoggingInterceptor.name,
               // response: data,
               duration: `${duration}ms`,

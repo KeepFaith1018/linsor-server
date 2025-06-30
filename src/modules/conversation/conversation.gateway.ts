@@ -1,43 +1,44 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import * as WebSocket from 'ws';
 import { ConversationService } from './conversation.service';
-import path from 'path';
+import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
 
 @Injectable()
 export class ConversationGateway implements OnModuleInit {
   private wss: WebSocket.Server;
   private clients = new Map<string, WebSocket>();
-
+  @Inject(WINSTON_MODULE_NEST_PROVIDER)
+  private readonly logger;
   constructor(private readonly conversationService: ConversationService) {}
 
   onModuleInit() {
     this.wss = new WebSocket.Server({ port: 3001, path: '/ws' });
-    console.log('原生WebSocket服务器启动在端口 3001');
+    this.logger.log('原生WebSocket服务器启动在端口 3001');
 
     this.wss.on('connection', (ws: WebSocket) => {
       const clientId = this.generateClientId();
       this.clients.set(clientId, ws);
       (ws as any).clientId = clientId;
 
-      console.log(`WebSocket客户端连接: ${clientId}`);
+      this.logger.log(`WebSocket客户端连接: ${clientId}`);
 
       ws.on('message', (data: string) => {
         try {
           const message = JSON.parse(data.toString());
           this.handleMessage(ws, message);
         } catch (error) {
-          console.error('解析消息失败:', error);
+          this.logger.error('解析消息失败:', error);
           this.sendError(ws, '消息格式错误');
         }
       });
 
       ws.on('close', () => {
         this.clients.delete(clientId);
-        console.log(`WebSocket客户端断开: ${clientId}`);
+        this.logger.log(`WebSocket客户端断开: ${clientId}`);
       });
 
       ws.on('error', (error) => {
-        console.error(`WebSocket错误: ${error}`);
+        this.logger.error(`WebSocket错误: ${error}`);
         this.clients.delete(clientId);
       });
     });
@@ -67,7 +68,7 @@ export class ConversationGateway implements OnModuleInit {
     },
   ) {
     try {
-      console.log(
+      this.logger.log(
         `[${new Date().toISOString()}] 🚀 开始WebSocket流式AI响应，会话ID: ${data.conversation_id}`,
       );
 
@@ -116,11 +117,11 @@ export class ConversationGateway implements OnModuleInit {
         });
       }
 
-      console.log(
+      this.logger.log(
         `[${new Date().toISOString()}] ✅ WebSocket流式AI响应完成，会话ID: ${data.conversation_id}`,
       );
     } catch (error) {
-      console.error(`WebSocket流式响应错误: ${error.message}`);
+      console.error(`WebSocket流式响应错误: ${error}`);
       if (ws.readyState === WebSocket.OPEN) {
         this.sendMessage(ws, {
           type: 'aiResponse',
@@ -138,7 +139,7 @@ export class ConversationGateway implements OnModuleInit {
     ws: WebSocket,
     data: { conversation_id: number },
   ) {
-    console.log(`用户停止AI响应，会话ID: ${data.conversation_id}`);
+    this.logger.log(`用户停止AI响应，会话ID: ${data.conversation_id}`);
     this.sendMessage(ws, {
       type: 'aiResponse',
       data: {

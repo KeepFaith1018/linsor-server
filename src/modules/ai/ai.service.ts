@@ -128,8 +128,17 @@ export class AiService {
       5,
     );
     this.logger.log(
-      `[${new Date().toISOString()}] 📊 向量搜索完成，耗时: ${Date.now() - vectorStart}ms`,
+      `[${new Date().toISOString()}] 📊 向量搜索完成，耗时: ${Date.now() - vectorStart}ms，数量: ${relevantDocs.length}`,
     );
+
+    // 2. 如果未命中任何向量
+    if (!relevantDocs || relevantDocs.length === 0) {
+      this.logger.warn(
+        `[${new Date().toISOString()}] 🚨 未检索到任何相关文档，知识库ID: ${knowledgeId}`,
+      );
+      yield '抱歉，当前知识库中没有找到与您的问题相关的内容，请先上传文件或换个问题试试。';
+      return;
+    }
 
     // 2. 构建RAG上下文
     const context = relevantDocs.map((doc) => doc.content).join('\n\n');
